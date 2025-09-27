@@ -2,14 +2,28 @@ import { useState, useEffect } from 'react';
 import { MarketOverview } from './MarketOverview';
 import { MarketCard } from './MarketCard';
 import { PriceChart } from './PriceChart';
+import { InvestmentAdvice } from './InvestmentAdvice';
+import { CommoditiesSection } from './CommoditiesSection';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { RefreshCw, BarChart3, TrendingUp } from 'lucide-react';
-import { fetchCryptoData, fetchPriceHistory, generatePrediction, CoinData, PriceHistoryPoint } from '@/lib/marketApi';
+import { 
+  fetchCryptoData, 
+  fetchPriceHistory, 
+  fetchCommoditiesData,
+  generatePrediction, 
+  generateInvestmentAdvice,
+  CoinData, 
+  PriceHistoryPoint,
+  CommodityData,
+  InvestmentAdvice as IInvestmentAdvice
+} from '@/lib/marketApi';
 
 export const MarketDashboard = () => {
   const [cryptoData, setCryptoData] = useState<CoinData[]>([]);
+  const [commoditiesData, setCommoditiesData] = useState<CommodityData[]>([]);
+  const [investmentAdvice, setInvestmentAdvice] = useState<IInvestmentAdvice[]>([]);
   const [chartData, setChartData] = useState<PriceHistoryPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
@@ -18,13 +32,20 @@ export const MarketDashboard = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [coins, priceHistory] = await Promise.all([
+      const [coins, priceHistory, commodities] = await Promise.all([
         fetchCryptoData(8),
-        fetchPriceHistory(selectedCoin)
+        fetchPriceHistory(selectedCoin),
+        fetchCommoditiesData()
       ]);
       
       setCryptoData(coins);
       setChartData(priceHistory);
+      setCommoditiesData(commodities);
+      
+      // Generate investment advice based on real market data
+      const advice = generateInvestmentAdvice(coins, commodities);
+      setInvestmentAdvice(advice);
+      
       setLastUpdate(new Date());
     } catch (error) {
       console.error('Error loading market data:', error);
@@ -119,8 +140,9 @@ export const MarketDashboard = () => {
             />
           </div>
 
-          {/* Market Insights */}
+          {/* Investment Advice */}
           <div className="space-y-6">
+            <InvestmentAdvice advice={investmentAdvice} />
             <Card className="p-6 bg-gradient-card border-border/50">
               <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
                 <TrendingUp className="w-5 h-5" />
@@ -128,15 +150,17 @@ export const MarketDashboard = () => {
               </h3>
               <div className="space-y-4">
                 <div className="p-4 bg-success/10 rounded-lg border border-success/20">
-                  <p className="text-sm font-medium text-success mb-1">Strong Bullish Signal</p>
+                  <p className="text-sm font-medium text-success mb-1">
+                    {avgChange > 0 ? 'Bullish Market' : avgChange < -2 ? 'Bearish Market' : 'Neutral Market'}
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    Technical indicators show positive momentum across major cryptocurrencies
+                    Average 24h change: {avgChange.toFixed(2)}%
                   </p>
                 </div>
                 <div className="p-4 bg-primary/10 rounded-lg border border-primary/20">
-                  <p className="text-sm font-medium text-primary mb-1">High Volume Activity</p>
+                  <p className="text-sm font-medium text-primary mb-1">Volume Analysis</p>
                   <p className="text-xs text-muted-foreground">
-                    Trading volume is 23% above 30-day average
+                    Total 24h volume: {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact' }).format(totalVolume)}
                   </p>
                 </div>
                 <div className="text-xs text-muted-foreground">
@@ -172,6 +196,9 @@ export const MarketDashboard = () => {
             })}
           </div>
         </div>
+
+        {/* Commodities Section */}
+        <CommoditiesSection commodities={commoditiesData} />
       </div>
     </div>
   );
