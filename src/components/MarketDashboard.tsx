@@ -84,7 +84,7 @@ export const MarketDashboard = () => {
         setSelectedAsset('bitcoin');
         break;
       case 'stock':
-        setSelectedAsset('AAPL');
+        setSelectedAsset('MSFT');
         break;
       case 'forex':
         setSelectedAsset('EURUSD');

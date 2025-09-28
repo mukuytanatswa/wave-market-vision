@@ -104,8 +104,7 @@ export const fetchCryptoData = async (limit = 10): Promise<CoinData[]> => {
     return data;
   } catch (error) {
     console.error('Error fetching crypto data:', error);
-    console.log('⚠️ Falling back to mock data');
-    return getMockData();
+    return [];
   }
 };
 
@@ -220,7 +219,7 @@ export const fetchPriceHistory = async (coinId: string, dataType: 'crypto' | 'st
       const data = await response.json();
       console.log('✅ Fetched real forex price history for', coinId);
       
-      if (data['Time Series (FX)']) {
+      if (data['Time Series FX (Daily)']) {
         const timeSeries = data['Time Series (FX)'];
         const sortedDates = Object.keys(timeSeries).sort().slice(-30); // Last 30 days
         
@@ -262,8 +261,7 @@ export const fetchPriceHistory = async (coinId: string, dataType: 'crypto' | 'st
     throw new Error('Invalid data type');
   } catch (error) {
     console.error('Error fetching price history:', error);
-    console.log('⚠️ Falling back to mock price history');
-    return getMockPriceHistory();
+    return [];
   }
 };
 
@@ -361,7 +359,7 @@ const getMockData = (): CoinData[] => [
 ];
 
 // Fetch real stock data using Alpha Vantage API
-export const fetchStockData = async (symbols: string[] = ['AAPL', 'MSFT', 'GOOGL', 'TSLA']): Promise<StockData[]> => {
+export const fetchStockData = async (symbols: string[] = ['MSFT']): Promise<StockData[]> => {
   const stocks: StockData[] = [];
   
   for (const symbol of symbols) {
@@ -396,11 +394,6 @@ export const fetchStockData = async (symbols: string[] = ['AAPL', 'MSFT', 'GOOGL
     } catch (error) {
       console.error(`Error fetching stock data for ${symbol}:`, error);
     }
-  }
-  
-  if (stocks.length === 0) {
-    console.log('⚠️ No stock data available, using mock data');
-    return getMockStockData();
   }
   
   return stocks;
@@ -448,11 +441,6 @@ export const fetchForexData = async (): Promise<ForexData[]> => {
     } catch (error) {
       console.error(`Error fetching forex data for ${pair}:`, error);
     }
-  }
-  
-  if (forex.length === 0) {
-    console.log('⚠️ No forex data available, using mock data');
-    return getMockForexData();
   }
   
   return forex;

@@ -47,7 +47,7 @@ export const PriceChart = ({ data, symbol }: PriceChartProps) => {
         </p>
         {validData.length === 0 && (
           <p className="text-sm text-yellow-600 mt-2">
-            ⚠️ No valid price data available. Using mock data.
+            No valid price data available.
           </p>
         )}
       </div>
