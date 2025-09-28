@@ -36,7 +36,7 @@ export const MarketDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [selectedCoin, setSelectedCoin] = useState<string>('bitcoin');
-  const [dataSource, setDataSource] = useState<'crypto' | 'stocks' | 'forex'>('crypto');
+  const [dataSource, setDataSource] = useState<'crypto' | 'stock' | 'forex'>('crypto');
   const [selectedAsset, setSelectedAsset] = useState<string>('bitcoin');
 
   const loadData = async () => {
@@ -83,7 +83,7 @@ export const MarketDashboard = () => {
       case 'crypto':
         setSelectedAsset('bitcoin');
         break;
-      case 'stocks':
+      case 'stock':
         setSelectedAsset('AAPL');
         break;
       case 'forex':
@@ -107,7 +107,7 @@ export const MarketDashboard = () => {
           : 42;
         return { totalMarketCap, totalVolume, avgChange, bitcoinDominance };
       
-      case 'stocks':
+      case 'stock':
         const totalStockCap = stockData.reduce((sum, stock) => sum + stock.marketCap, 0);
         const totalStockVolume = stockData.reduce((sum, stock) => sum + stock.volume, 0);
         const avgStockChange = stockData.length > 0 
@@ -169,8 +169,8 @@ export const MarketDashboard = () => {
             Cryptocurrency
           </Button>
           <Button
-            variant={dataSource === 'stocks' ? 'default' : 'outline'}
-            onClick={() => setDataSource('stocks')}
+            variant={dataSource === 'stock' ? 'default' : 'outline'}
+            onClick={() => setDataSource('stock')}
             size="sm"
           >
             Stocks
@@ -214,7 +214,7 @@ export const MarketDashboard = () => {
                           {coin.symbol.toUpperCase()}
                         </SelectItem>
                       ))}
-                      {dataSource === 'stocks' && stockData.map(stock => (
+                      {dataSource === 'stock' && stockData.map(stock => (
                         <SelectItem key={stock.symbol} value={stock.symbol}>
                           {stock.symbol}
                         </SelectItem>
@@ -235,7 +235,7 @@ export const MarketDashboard = () => {
               symbol={
                 dataSource === 'crypto' 
                   ? cryptoData.find(c => c.id === selectedAsset)?.symbol.toUpperCase() || 'BTC'
-                  : dataSource === 'stocks'
+                  : dataSource === 'stock'
                   ? stockData.find(s => s.symbol === selectedAsset)?.symbol || 'AAPL'
                   : forexData.find(f => f.symbol === selectedAsset)?.symbol || 'EURUSD'
               } 
@@ -277,7 +277,7 @@ export const MarketDashboard = () => {
         <div>
           <h2 className="text-xl font-semibold text-foreground mb-6">
             {dataSource === 'crypto' && 'Top Cryptocurrencies with AI Predictions'}
-            {dataSource === 'stocks' && 'Top Stocks with AI Predictions'}
+            {dataSource === 'stock' && 'Top Stocks with AI Predictions'}
             {dataSource === 'forex' && 'Major Forex Pairs with AI Predictions'}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
@@ -299,7 +299,7 @@ export const MarketDashboard = () => {
               );
             })}
             
-            {dataSource === 'stocks' && stockData.map((stock) => {
+            {dataSource === 'stock' && stockData.map((stock) => {
               const prices = [stock.open, stock.high, stock.low, stock.price];
               const prediction = generatePrediction(prices);
               
