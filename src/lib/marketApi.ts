@@ -88,6 +88,33 @@ const ALPHAWAVE_BASE_URL = 'https://api.alphawavedata.com/v1';
 const ALPHA_VANTAGE_API_KEY = 'demo'; // Using demo key for testing
 const ALPHA_VANTAGE_BASE_URL = 'https://www.alphavantage.co/query';
 
+// Alternative crypto API fallback using CoinAPI
+const fetchCryptoDataFromCoinAPI = async (limit: number = 10): Promise<CoinData[]> => {
+  try {
+    // CoinAPI has a free tier
+    const response = await fetch(`https://rest.coinapi.io/v1/assets?filter_asset_id=BTC,ETH,BNB,XRP,ADA,SOL,DOT,DOGE&apikey=demo`);
+    
+    if (response.ok) {
+      const data = await response.json();
+      return data.slice(0, limit).map((coin: any) => ({
+        id: coin.asset_id.toLowerCase(),
+        symbol: coin.asset_id,
+        name: coin.name || coin.asset_id,
+        image: `https://assets.coinapi.io/v1/icons/${coin.asset_id.toLowerCase()}/32x32.png`,
+        current_price: coin.price_usd || 0,
+        market_cap: coin.volume_1day_usd || 0,
+        market_cap_rank: 1,
+        total_volume: coin.volume_1day_usd || 0,
+        price_change_percentage_24h: 0, // CoinAPI free tier doesn't include change data
+        last_updated: new Date().toISOString()
+      }));
+    }
+  } catch (error) {
+    console.error('CoinAPI error:', error);
+  }
+  return [];
+};
+
 // Fetch real crypto data from CoinGecko API (free tier)
 export const fetchCryptoData = async (limit = 10): Promise<CoinData[]> => {
   try {
@@ -103,7 +130,18 @@ export const fetchCryptoData = async (limit = 10): Promise<CoinData[]> => {
     console.log('✅ Fetched real crypto data from CoinGecko:', data.length, 'coins');
     return data;
   } catch (error) {
-    console.error('Error fetching crypto data:', error);
+    console.error('Error fetching crypto data from CoinGecko:', error);
+    
+    // Try CoinAPI as fallback
+    console.log('⚠️ CoinGecko failed, trying CoinAPI...');
+    const coinAPIData = await fetchCryptoDataFromCoinAPI(limit);
+    
+    if (coinAPIData.length > 0) {
+      console.log('✅ Fetched crypto data from CoinAPI');
+      return coinAPIData;
+    }
+    
+    console.log('⚠️ All crypto APIs failed');
     return [];
   }
 };
@@ -220,7 +258,7 @@ export const fetchPriceHistory = async (coinId: string, dataType: 'crypto' | 'st
       console.log('✅ Fetched real forex price history for', coinId);
       
       if (data['Time Series FX (Daily)']) {
-        const timeSeries = data['Time Series (FX)'];
+        const timeSeries = data['Time Series FX (Daily)'];
         const sortedDates = Object.keys(timeSeries).sort().slice(-30); // Last 30 days
         
         const historicalData = sortedDates.map((date) => ({
@@ -358,6 +396,49 @@ const getMockData = (): CoinData[] => [
   }
 ];
 
+// Alternative free stock API fallback
+const fetchStockDataFromFinnhub = async (symbols: string[]): Promise<StockData[]> => {
+  const stocks: StockData[] = [];
+  const FINNHUB_API_KEY = 'demo'; // Free tier
+  
+  for (const symbol of symbols) {
+    try {
+      const [quoteResponse, profileResponse] = await Promise.all([
+        fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${FINNHUB_API_KEY}`),
+        fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${symbol}&token=${FINNHUB_API_KEY}`)
+      ]);
+      
+      if (quoteResponse.ok && profileResponse.ok) {
+        const quote = await quoteResponse.json();
+        const profile = await profileResponse.json();
+        
+        if (quote.c && quote.c > 0) {
+          const change = quote.c - quote.pc;
+          const changePercent = (change / quote.pc) * 100;
+          
+          stocks.push({
+            symbol: symbol,
+            name: profile.name || getCompanyName(symbol),
+            price: quote.c,
+            change: change,
+            changePercent: changePercent,
+            volume: quote.v || 0,
+            marketCap: profile.marketCapitalization || calculateMarketCap(quote.c, symbol),
+            high: quote.h || quote.c,
+            low: quote.l || quote.c,
+            open: quote.o || quote.c,
+            previousClose: quote.pc || quote.c
+          });
+        }
+      }
+    } catch (error) {
+      console.error(`Finnhub API error for ${symbol}:`, error);
+    }
+  }
+  
+  return stocks;
+};
+
 // Fetch real stock data using Alpha Vantage API
 export const fetchStockData = async (symbols: string[] = ['MSFT']): Promise<StockData[]> => {
   const stocks: StockData[] = [];
@@ -396,15 +477,72 @@ export const fetchStockData = async (symbols: string[] = ['MSFT']): Promise<Stoc
     }
   }
   
+  // If Alpha Vantage failed, try Finnhub as fallback
+  if (stocks.length === 0) {
+    console.log('⚠️ Alpha Vantage failed, trying Finnhub...');
+    const finnhubStocks = await fetchStockDataFromFinnhub(symbols);
+    stocks.push(...finnhubStocks);
+  }
+  
   return stocks;
+};
+
+// Alternative free forex API using ExchangeRate-API
+const fetchForexDataFromExchangeRate = async (): Promise<ForexData[]> => {
+  const forex: ForexData[] = [];
+  const baseCurrencies = ['EUR', 'GBP', 'JPY', 'AUD'];
+  
+  try {
+    // Get USD rates for all currencies
+    const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+    if (!response.ok) throw new Error('ExchangeRate API failed');
+    
+    const data = await response.json();
+    const rates = data.rates;
+    
+    // Get historical data for change calculation (yesterday)
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const historicalResponse = await fetch(`https://api.exchangerate-api.com/v4/historical/USD/${yesterday.toISOString().split('T')[0]}`);
+    const historicalData = historicalResponse.ok ? await historicalResponse.json() : null;
+    const historicalRates = historicalData?.rates || rates;
+    
+    for (const currency of baseCurrencies) {
+      if (rates[currency]) {
+        const currentRate = currency === 'JPY' ? rates[currency] : 1 / rates[currency];
+        const previousRate = currency === 'JPY' ? historicalRates[currency] : 1 / historicalRates[currency];
+        const change = currentRate - previousRate;
+        const changePercent = (change / previousRate) * 100;
+        
+        const pair = currency === 'JPY' ? `USD${currency}` : `${currency}USD`;
+        
+        forex.push({
+          symbol: pair,
+          name: getForexName(pair),
+          price: currentRate,
+          change: change,
+          changePercent: changePercent,
+          volume: Math.round(Math.random() * 1000000000 + 500000000),
+          marketCap: 0
+        });
+      }
+    }
+    
+    console.log('✅ Fetched forex data from ExchangeRate-API');
+    return forex;
+  } catch (error) {
+    console.error('ExchangeRate API error:', error);
+    return [];
+  }
 };
 
 // Fetch real forex data using Alpha Vantage API
 export const fetchForexData = async (): Promise<ForexData[]> => {
-  const forexPairs = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD'];
   const forex: ForexData[] = [];
+  const pairs = ['EURUSD']; // Focus on EURUSD since demo key works reliably for this pair
   
-  for (const pair of forexPairs) {
+  // Try Alpha Vantage first (works best with EURUSD on demo key)
+  for (const pair of pairs) {
     try {
       const response = await fetch(
         `${ALPHA_VANTAGE_BASE_URL}?function=FX_DAILY&from_symbol=${pair.substring(0,3)}&to_symbol=${pair.substring(3,6)}&apikey=${ALPHA_VANTAGE_API_KEY}`
@@ -416,31 +554,42 @@ export const fetchForexData = async (): Promise<ForexData[]> => {
       
       const data = await response.json();
       
-      if (data['Time Series (FX)']) {
-        const timeSeries = data['Time Series (FX)'];
+      // Fix: Use correct key from API response
+      if (data['Time Series FX (Daily)']) {
+        const timeSeries = data['Time Series FX (Daily)'];
         const dates = Object.keys(timeSeries).sort();
-        const latest = timeSeries[dates[dates.length - 1]];
-        const previous = timeSeries[dates[dates.length - 2]];
         
-        const currentPrice = parseFloat(latest['4. close']);
-        const previousPrice = parseFloat(previous['4. close']);
-        const change = currentPrice - previousPrice;
-        const changePercent = (change / previousPrice) * 100;
-        
-        forex.push({
-          symbol: pair,
-          name: getForexName(pair),
-          price: currentPrice,
-          change: change,
-          changePercent: changePercent,
-          volume: Math.round(Math.random() * 1000000000 + 500000000), // Simulated volume
-          marketCap: 0 // Forex doesn't have market cap concept
-        });
-        console.log('✅ Fetched real forex data for', pair);
+        if (dates.length >= 2) {
+          const latest = timeSeries[dates[dates.length - 1]];
+          const previous = timeSeries[dates[dates.length - 2]];
+          
+          const currentPrice = parseFloat(latest['4. close']);
+          const previousPrice = parseFloat(previous['4. close']);
+          const change = currentPrice - previousPrice;
+          const changePercent = (change / previousPrice) * 100;
+          
+          forex.push({
+            symbol: pair,
+            name: getForexName(pair),
+            price: currentPrice,
+            change: change,
+            changePercent: changePercent,
+            volume: Math.round(Math.random() * 1000000000 + 500000000),
+            marketCap: 0
+          });
+          console.log('✅ Fetched real forex data for', pair);
+        }
       }
     } catch (error) {
       console.error(`Error fetching forex data for ${pair}:`, error);
     }
+  }
+  
+  // If Alpha Vantage failed or returned no data, try ExchangeRate-API as fallback
+  if (forex.length === 0) {
+    console.log('⚠️ Alpha Vantage failed, trying ExchangeRate-API...');
+    const exchangeRateForex = await fetchForexDataFromExchangeRate();
+    forex.push(...exchangeRateForex);
   }
   
   return forex;
