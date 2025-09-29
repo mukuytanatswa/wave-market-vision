@@ -303,66 +303,538 @@ export const fetchPriceHistory = async (coinId: string, dataType: 'crypto' | 'st
   }
 };
 
-// Advanced prediction algorithm using multiple technical indicators
-export const generateAdvancedPrediction = (prices: number[]): number | undefined => {
-  if (prices.length < 10) return undefined;
+// ============= ADVANCED PREDICTION ENGINE =============
+// Exponential Moving Average calculation
+const calculateEMA = (prices: number[], period: number): number[] => {
+  if (prices.length < period) return [];
   
-  // Calculate moving averages
-  const sma5 = prices.slice(-5).reduce((a, b) => a + b, 0) / 5;
-  const sma10 = prices.slice(-10).reduce((a, b) => a + b, 0) / 10;
+  const multiplier = 2 / (period + 1);
+  const ema = [prices[0]];
   
-  // Calculate RSI (simplified)
-  const gains = [];
-  const losses = [];
   for (let i = 1; i < prices.length; i++) {
-    const change = prices[i] - prices[i - 1];
-    if (change > 0) gains.push(change);
-    else losses.push(Math.abs(change));
+    ema[i] = (prices[i] * multiplier) + (ema[i - 1] * (1 - multiplier));
   }
   
-  const avgGain = gains.length > 0 ? gains.reduce((a, b) => a + b, 0) / gains.length : 0;
-  const avgLoss = losses.length > 0 ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
-  const rs = avgGain / (avgLoss || 0.001);
-  const rsi = 100 - (100 / (1 + rs));
-  
-  // Calculate volatility
-  const volatility = Math.sqrt(
-    prices.slice(-10).reduce((sum, price) => {
-      const mean = sma10;
-      return sum + Math.pow(price - mean, 2);
-    }, 0) / 10
-  ) / sma10;
-  
-  // Generate prediction based on technical analysis
-  const trend = sma5 > sma10 ? 1 : -1;
-  const rsiSignal = rsi < 30 ? 1.02 : rsi > 70 ? 0.98 : 1;
-  const volatilityFactor = Math.max(0.95, Math.min(1.05, 1 - volatility * 0.5));
-  
-  const currentPrice = prices[prices.length - 1];
-  const prediction = currentPrice * trend * rsiSignal * volatilityFactor;
-  
-  return Math.round(prediction * 100) / 100;
+  return ema;
 };
 
-// Simple prediction algorithm using moving averages
+// Advanced RSI with proper EMA calculation
+const calculateAdvancedRSI = (prices: number[], period: number = 14): number => {
+  if (prices.length < period + 1) return 50;
+  
+  const gains = [];
+  const losses = [];
+  
+  for (let i = 1; i < prices.length; i++) {
+    const change = prices[i] - prices[i - 1];
+    gains.push(change > 0 ? change : 0);
+    losses.push(change < 0 ? Math.abs(change) : 0);
+  }
+  
+  const avgGain = calculateEMA(gains, period);
+  const avgLoss = calculateEMA(losses, period);
+  
+  const latestGain = avgGain[avgGain.length - 1] || 0.001;
+  const latestLoss = avgLoss[avgLoss.length - 1] || 0.001;
+  
+  const rs = latestGain / latestLoss;
+  return 100 - (100 / (1 + rs));
+};
+
+// MACD Calculation
+const calculateMACD = (prices: number[]): { macd: number; signal: number; histogram: number } => {
+  if (prices.length < 26) return { macd: 0, signal: 0, histogram: 0 };
+  
+  const ema12 = calculateEMA(prices, 12);
+  const ema26 = calculateEMA(prices, 26);
+  
+  const macdLine = ema12[ema12.length - 1] - ema26[ema26.length - 1];
+  
+  // Simple approximation for signal line (9-day EMA of MACD)
+  const macdHistory = [];
+  for (let i = 26; i < prices.length; i++) {
+    macdHistory.push(ema12[i] - ema26[i]);
+  }
+  
+  const signalLine = calculateEMA(macdHistory, 9);
+  const signal = signalLine[signalLine.length - 1] || 0;
+  const histogram = macdLine - signal;
+  
+  return { macd: macdLine, signal, histogram };
+};
+
+// Bollinger Bands calculation
+const calculateBollingerBands = (prices: number[], period: number = 20): { upper: number; middle: number; lower: number } => {
+  if (prices.length < period) return { upper: 0, middle: 0, lower: 0 };
+  
+  const recentPrices = prices.slice(-period);
+  const sma = recentPrices.reduce((a, b) => a + b, 0) / period;
+  
+  const variance = recentPrices.reduce((sum, price) => sum + Math.pow(price - sma, 2), 0) / period;
+  const stdDev = Math.sqrt(variance);
+  
+  return {
+    upper: sma + (2 * stdDev),
+    middle: sma,
+    lower: sma - (2 * stdDev)
+  };
+};
+
+// Stochastic Oscillator
+const calculateStochastic = (prices: number[], period: number = 14): { k: number; d: number } => {
+  if (prices.length < period) return { k: 50, d: 50 };
+  
+  const recentPrices = prices.slice(-period);
+  const highest = Math.max(...recentPrices);
+  const lowest = Math.min(...recentPrices);
+  const current = prices[prices.length - 1];
+  
+  const k = ((current - lowest) / (highest - lowest)) * 100;
+  
+  // Simple 3-period average for %D
+  const kHistory = [];
+  for (let i = period; i <= prices.length; i++) {
+    const slice = prices.slice(i - period, i);
+    const h = Math.max(...slice);
+    const l = Math.min(...slice);
+    const c = slice[slice.length - 1];
+    kHistory.push(((c - l) / (h - l)) * 100);
+  }
+  
+  const d = kHistory.slice(-3).reduce((a, b) => a + b, 0) / 3;
+  
+  return { k: k || 50, d: d || 50 };
+};
+
+// Williams %R
+const calculateWilliamsR = (prices: number[], period: number = 14): number => {
+  if (prices.length < period) return -50;
+  
+  const recentPrices = prices.slice(-period);
+  const highest = Math.max(...recentPrices);
+  const lowest = Math.min(...recentPrices);
+  const current = prices[prices.length - 1];
+  
+  return ((highest - current) / (highest - lowest)) * -100;
+};
+
+// VWAP (approximation without volume data)
+const calculateVWAP = (prices: number[]): number => {
+  if (prices.length === 0) return 0;
+  
+  // Weighted by position in array (more recent = higher weight)
+  let totalWeightedPrice = 0;
+  let totalWeight = 0;
+  
+  for (let i = 0; i < prices.length; i++) {
+    const weight = i + 1; // Linear weight increase
+    totalWeightedPrice += prices[i] * weight;
+    totalWeight += weight;
+  }
+  
+  return totalWeightedPrice / totalWeight;
+};
+
+// Support and Resistance Detection
+const detectSupportResistance = (prices: number[]): { support: number; resistance: number } => {
+  if (prices.length < 20) return { support: 0, resistance: 0 };
+  
+  const recentPrices = prices.slice(-50); // Look at last 50 data points
+  const sortedPrices = [...recentPrices].sort((a, b) => a - b);
+  
+  // Support: 20th percentile of recent prices
+  const supportIndex = Math.floor(sortedPrices.length * 0.2);
+  const support = sortedPrices[supportIndex];
+  
+  // Resistance: 80th percentile of recent prices
+  const resistanceIndex = Math.floor(sortedPrices.length * 0.8);
+  const resistance = sortedPrices[resistanceIndex];
+  
+  return { support, resistance };
+};
+
+// Pattern Recognition
+const detectPatterns = (prices: number[]): string[] => {
+  if (prices.length < 10) return [];
+  
+  const patterns = [];
+  const recent = prices.slice(-10);
+  const slope = (recent[recent.length - 1] - recent[0]) / recent.length;
+  const volatility = calculateVolatility(prices);
+  
+  // Double Top/Bottom patterns
+  const peaks = [];
+  const troughs = [];
+  
+  for (let i = 1; i < recent.length - 1; i++) {
+    if (recent[i] > recent[i - 1] && recent[i] > recent[i + 1]) peaks.push(recent[i]);
+    if (recent[i] < recent[i - 1] && recent[i] < recent[i + 1]) troughs.push(recent[i]);
+  }
+  
+  if (peaks.length >= 2) {
+    const lastTwoPeaks = peaks.slice(-2);
+    const peakDiff = Math.abs(lastTwoPeaks[0] - lastTwoPeaks[1]) / lastTwoPeaks[0];
+    if (peakDiff < 0.02) patterns.push('DOUBLE_TOP');
+  }
+  
+  if (troughs.length >= 2) {
+    const lastTwoTroughs = troughs.slice(-2);
+    const troughDiff = Math.abs(lastTwoTroughs[0] - lastTwoTroughs[1]) / lastTwoTroughs[0];
+    if (troughDiff < 0.02) patterns.push('DOUBLE_BOTTOM');
+  }
+  
+  // Trend patterns
+  if (slope > 0.01 && volatility < 0.05) patterns.push('STRONG_UPTREND');
+  if (slope < -0.01 && volatility < 0.05) patterns.push('STRONG_DOWNTREND');
+  if (Math.abs(slope) < 0.005) patterns.push('SIDEWAYS');
+  
+  return patterns;
+};
+
+// Market Regime Detection
+const detectMarketRegime = (prices: number[]): { volatilityRegime: string; trendRegime: string } => {
+  const volatility = calculateVolatility(prices);
+  const bollinger = calculateBollingerBands(prices);
+  const currentPrice = prices[prices.length - 1];
+  
+  let volatilityRegime = 'MEDIUM';
+  if (volatility < 0.02) volatilityRegime = 'LOW';
+  else if (volatility > 0.08) volatilityRegime = 'HIGH';
+  
+  let trendRegime = 'SIDEWAYS';
+  const bandWidth = (bollinger.upper - bollinger.lower) / bollinger.middle;
+  
+  if (currentPrice > bollinger.upper) trendRegime = 'STRONG_BULL';
+  else if (currentPrice < bollinger.lower) trendRegime = 'STRONG_BEAR';
+  else if (currentPrice > bollinger.middle && bandWidth > 0.1) trendRegime = 'BULL';
+  else if (currentPrice < bollinger.middle && bandWidth > 0.1) trendRegime = 'BEAR';
+  
+  return { volatilityRegime, trendRegime };
+};
+
+// Multi-timeframe Analysis
+const multiTimeframeAnalysis = (prices: number[]): { shortTerm: number; mediumTerm: number; longTerm: number } => {
+  const shortTerm = prices.length > 5 ? calculateEMA(prices.slice(-20), 5)[0] || 0 : 0;
+  const mediumTerm = prices.length > 14 ? calculateEMA(prices.slice(-50), 14)[0] || 0 : 0;
+  const longTerm = prices.length > 30 ? calculateEMA(prices.slice(-100), 30)[0] || 0 : 0;
+  
+  return { shortTerm, mediumTerm, longTerm };
+};
+
+// Advanced Signal Processing with Weighted Scoring
+const calculateSignalStrength = (indicators: any): number => {
+  let totalScore = 0;
+  let maxScore = 0;
+  
+  const currentPrice = indicators.currentPrice;
+  
+  // RSI Signal (Weight: 15%)
+  const rsiWeight = 15;
+  let rsiScore = 0;
+  if (indicators.rsi < 30) rsiScore = 80; // Oversold - bullish
+  else if (indicators.rsi > 70) rsiScore = 20; // Overbought - bearish
+  else rsiScore = 50; // Neutral
+  totalScore += rsiScore * rsiWeight / 100;
+  maxScore += rsiWeight;
+  
+  // MACD Signal (Weight: 20%)
+  const macdWeight = 20;
+  let macdScore = indicators.macd.histogram > 0 ? 70 : 30;
+  if (Math.abs(indicators.macd.histogram) < 0.01) macdScore = 50;
+  totalScore += macdScore * macdWeight / 100;
+  maxScore += macdWeight;
+  
+  // Bollinger Bands Signal (Weight: 15%)
+  const bbWeight = 15;
+  let bbScore = 50;
+  if (currentPrice < indicators.bollinger.lower) bbScore = 75; // Oversold
+  else if (currentPrice > indicators.bollinger.upper) bbScore = 25; // Overbought
+  else if (currentPrice > indicators.bollinger.middle) bbScore = 60;
+  else bbScore = 40;
+  totalScore += bbScore * bbWeight / 100;
+  maxScore += bbWeight;
+  
+  // Stochastic Signal (Weight: 10%)
+  const stochWeight = 10;
+  let stochScore = 50;
+  if (indicators.stochastic.k < 20) stochScore = 80;
+  else if (indicators.stochastic.k > 80) stochScore = 20;
+  totalScore += stochScore * stochWeight / 100;
+  maxScore += stochWeight;
+  
+  // Williams %R Signal (Weight: 10%)
+  const willRWeight = 10;
+  let willRScore = 50;
+  if (indicators.williamsR < -80) willRScore = 80;
+  else if (indicators.williamsR > -20) willRScore = 20;
+  totalScore += willRScore * willRWeight / 100;
+  maxScore += willRWeight;
+  
+  // Multi-timeframe Signal (Weight: 20%)
+  const mtfWeight = 20;
+  const mtf = indicators.multiTimeframe;
+  let mtfScore = 50;
+  if (mtf && mtf.shortTerm && mtf.mediumTerm && mtf.longTerm) {
+    const bullishTrends = [mtf.shortTerm > currentPrice, mtf.mediumTerm > currentPrice, mtf.longTerm > currentPrice].filter(Boolean).length;
+    mtfScore = 30 + (bullishTrends * 13.33); // 30-70 range
+  }
+  totalScore += mtfScore * mtfWeight / 100;
+  maxScore += mtfWeight;
+  
+  // Pattern Recognition Bonus (Weight: 10%)
+  const patternWeight = 10;
+  let patternScore = 50;
+  if (indicators.patterns && indicators.patterns.length > 0) {
+    if (indicators.patterns.includes('DOUBLE_BOTTOM') || indicators.patterns.includes('STRONG_UPTREND')) patternScore = 80;
+    else if (indicators.patterns.includes('DOUBLE_TOP') || indicators.patterns.includes('STRONG_DOWNTREND')) patternScore = 20;
+  }
+  totalScore += patternScore * patternWeight / 100;
+  maxScore += patternWeight;
+  
+  return (totalScore / maxScore) * 100;
+};
+
+// Machine Learning-Enhanced Prediction
+const machineLearningPrediction = (prices: number[]): number => {
+  if (prices.length < 20) return prices[prices.length - 1];
+  
+  // Simple Linear Regression
+  const n = Math.min(prices.length, 50); // Use last 50 data points
+  const recentPrices = prices.slice(-n);
+  
+  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+  
+  for (let i = 0; i < recentPrices.length; i++) {
+    sumX += i;
+    sumY += recentPrices[i];
+    sumXY += i * recentPrices[i];
+    sumXX += i * i;
+  }
+  
+  const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+  const intercept = (sumY - slope * sumX) / n;
+  
+  // Predict next value
+  const nextX = recentPrices.length;
+  const linearPrediction = slope * nextX + intercept;
+  
+  // Adjust for momentum and volatility
+  const momentum = (recentPrices[recentPrices.length - 1] - recentPrices[recentPrices.length - 5]) / recentPrices[recentPrices.length - 5];
+  const momentumAdjustment = linearPrediction * momentum * 0.1;
+  
+  return linearPrediction + momentumAdjustment;
+};
+
+// Main Advanced Prediction Engine
+export const generateAdvancedPrediction = (prices: number[]): number | undefined => {
+  if (prices.length < 20) return undefined;
+  
+  try {
+    const currentPrice = prices[prices.length - 1];
+    
+    // Calculate all technical indicators
+    const rsi = calculateAdvancedRSI(prices);
+    const macd = calculateMACD(prices);
+    const bollinger = calculateBollingerBands(prices);
+    const stochastic = calculateStochastic(prices);
+    const williamsR = calculateWilliamsR(prices);
+    const vwap = calculateVWAP(prices);
+    const supportResistance = detectSupportResistance(prices);
+    const patterns = detectPatterns(prices);
+    const marketRegime = detectMarketRegime(prices);
+    const multiTimeframe = multiTimeframeAnalysis(prices);
+    
+    // Compile indicators object
+    const indicators = {
+      currentPrice,
+      rsi,
+      macd,
+      bollinger,
+      stochastic,
+      williamsR,
+      vwap,
+      supportResistance,
+      patterns,
+      marketRegime,
+      multiTimeframe
+    };
+    
+    // Calculate signal strength
+    const signalStrength = calculateSignalStrength(indicators);
+    
+    // Generate machine learning prediction
+    const mlPrediction = machineLearningPrediction(prices);
+    
+    // Generate technical analysis prediction
+    const trendMultiplier = signalStrength > 60 ? 1.02 : signalStrength < 40 ? 0.98 : 1.0;
+    const volatility = calculateVolatility(prices);
+    const volatilityAdjustment = 1 + ((Math.random() - 0.5) * volatility * 0.5);
+    
+    // Combine ML and TA predictions with regime-based weighting
+    let mlWeight = 0.4;
+    let taWeight = 0.6;
+    
+    // Adjust weights based on market regime
+    if (marketRegime.volatilityRegime === 'HIGH') {
+      mlWeight = 0.6; // ML handles volatility better
+      taWeight = 0.4;
+    } else if (marketRegime.trendRegime.includes('STRONG')) {
+      mlWeight = 0.3; // TA better for strong trends
+      taWeight = 0.7;
+    }
+    
+    const taPrediction = currentPrice * trendMultiplier * volatilityAdjustment;
+    const finalPrediction = (mlPrediction * mlWeight) + (taPrediction * taWeight);
+    
+    // Apply support/resistance constraints
+    let constrainedPrediction = finalPrediction;
+    if (finalPrediction > supportResistance.resistance * 1.05) {
+      constrainedPrediction = supportResistance.resistance * 1.02;
+    } else if (finalPrediction < supportResistance.support * 0.95) {
+      constrainedPrediction = supportResistance.support * 0.98;
+    }
+    
+    return Math.round(constrainedPrediction * 100) / 100;
+    
+  } catch (error) {
+    console.error('Advanced prediction error:', error);
+    return prices[prices.length - 1]; // Return last price as fallback
+  }
+};
+
+// Enhanced Prediction Algorithm with Advanced Signal Processing
 export const generatePrediction = (prices: number[]): { 
   direction: 'bullish' | 'bearish' | 'neutral';
   confidence: number;
 } => {
-  if (prices.length < 2) return { direction: 'neutral', confidence: 50 };
+  if (prices.length < 5) return { direction: 'neutral', confidence: 50 };
   
-  const recent = prices.slice(-5);
-  const older = prices.slice(-10, -5);
-  
-  const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
-  const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
-  
-  const change = ((recentAvg - olderAvg) / olderAvg) * 100;
-  const confidence = Math.min(90, Math.abs(change * 10) + 60);
-  
-  if (change > 2) return { direction: 'bullish', confidence: Math.round(confidence) };
-  if (change < -2) return { direction: 'bearish', confidence: Math.round(confidence) };
-  return { direction: 'neutral', confidence: Math.round(confidence) };
+  try {
+    const currentPrice = prices[prices.length - 1];
+    
+    // Multi-indicator analysis
+    const rsi = calculateAdvancedRSI(prices, 14);
+    const macd = calculateMACD(prices);
+    const bollinger = calculateBollingerBands(prices);
+    const stochastic = calculateStochastic(prices);
+    const patterns = detectPatterns(prices);
+    const marketRegime = detectMarketRegime(prices);
+    
+    // Compile indicators for signal strength calculation
+    const indicators = {
+      currentPrice,
+      rsi,
+      macd,
+      bollinger,
+      stochastic,
+      williamsR: calculateWilliamsR(prices),
+      patterns,
+      multiTimeframe: multiTimeframeAnalysis(prices)
+    };
+    
+    // Calculate comprehensive signal strength
+    const signalStrength = calculateSignalStrength(indicators);
+    
+    // Determine direction based on signal strength and multiple confirmations
+    let direction: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+    let baseConfidence = 50;
+    
+    // Primary signal from combined indicators
+    if (signalStrength > 65) {
+      direction = 'bullish';
+      baseConfidence = Math.min(95, 60 + (signalStrength - 65) * 2);
+    } else if (signalStrength < 35) {
+      direction = 'bearish';
+      baseConfidence = Math.min(95, 60 + (35 - signalStrength) * 2);
+    } else {
+      direction = 'neutral';
+      baseConfidence = 50 + Math.abs(signalStrength - 50) * 0.5;
+    }
+    
+    // Confirmation signals boost confidence
+    let confirmationBonus = 0;
+    let confirmationCount = 0;
+    
+    // RSI confirmation
+    if ((direction === 'bullish' && rsi < 70) || (direction === 'bearish' && rsi > 30)) {
+      confirmationBonus += 5;
+      confirmationCount++;
+    }
+    
+    // MACD confirmation
+    if ((direction === 'bullish' && macd.histogram > 0) || (direction === 'bearish' && macd.histogram < 0)) {
+      confirmationBonus += 8;
+      confirmationCount++;
+    }
+    
+    // Bollinger Bands confirmation
+    if (direction === 'bullish' && currentPrice < bollinger.upper) {
+      confirmationBonus += 5;
+      confirmationCount++;
+    } else if (direction === 'bearish' && currentPrice > bollinger.lower) {
+      confirmationBonus += 5;
+      confirmationCount++;
+    }
+    
+    // Pattern confirmation
+    const bullishPatterns = ['DOUBLE_BOTTOM', 'STRONG_UPTREND'];
+    const bearishPatterns = ['DOUBLE_TOP', 'STRONG_DOWNTREND'];
+    
+    if (direction === 'bullish' && patterns.some(p => bullishPatterns.includes(p))) {
+      confirmationBonus += 10;
+      confirmationCount++;
+    } else if (direction === 'bearish' && patterns.some(p => bearishPatterns.includes(p))) {
+      confirmationBonus += 10;
+      confirmationCount++;
+    }
+    
+    // Market regime adjustment
+    if (marketRegime.trendRegime.includes('STRONG')) {
+      if ((direction === 'bullish' && marketRegime.trendRegime.includes('BULL')) ||
+          (direction === 'bearish' && marketRegime.trendRegime.includes('BEAR'))) {
+        confirmationBonus += 12;
+        confirmationCount++;
+      }
+    }
+    
+    // Final confidence calculation
+    let finalConfidence = baseConfidence + confirmationBonus;
+    
+    // Reduce confidence if few confirmations
+    if (confirmationCount < 2) {
+      finalConfidence *= 0.8;
+    }
+    
+    // Volatility adjustment (high volatility reduces confidence)
+    const volatility = calculateVolatility(prices);
+    if (volatility > 0.1) {
+      finalConfidence *= (1 - Math.min(0.3, volatility));
+    }
+    
+    // Ensure confidence is within bounds
+    finalConfidence = Math.max(35, Math.min(98, finalConfidence));
+    
+    return { 
+      direction, 
+      confidence: Math.round(finalConfidence)
+    };
+    
+  } catch (error) {
+    console.error('Enhanced prediction error:', error);
+    // Fallback to simple analysis
+    const recent = prices.slice(-5);
+    const older = prices.slice(-10, -5);
+    
+    const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+    const olderAvg = older.reduce((a, b) => a + b, 0) / older.length;
+    
+    const change = ((recentAvg - olderAvg) / olderAvg) * 100;
+    const confidence = Math.min(90, Math.abs(change * 10) + 60);
+    
+    if (change > 2) return { direction: 'bullish', confidence: Math.round(confidence) };
+    if (change < -2) return { direction: 'bearish', confidence: Math.round(confidence) };
+    return { direction: 'neutral', confidence: Math.round(confidence) };
+  }
 };
 
 // Mock data fallback
